@@ -1,61 +1,72 @@
 #ifndef HOOKTEMPLATE_H
 #define HOOKTEMPLATE_H
 #include<Windows.h>
-
+#include<vector>
 // patch bytes function
 class HooknPatch
 {
+private:
+	// This gatway variable stores the original bytes of function
+	char* gateway;
+
 public:
-	//	Use of Patch or writememory Function: Create class HooknPatch hP ;
-	//use hP.patchByte<LENGTH>(dst,src,LENGTH)
-	//hP.patchByte<7>((BYTE*)d3d9Device[42], EndSceneBytes);
-
+	
 	//template non-type parameters used for template functions
-	template<int LENGTH>
-	void patchByte( BYTE* dst, BYTE* src )
-	{
-		DWORD oProc;
-		VirtualProtect( dst, LENGTH, PAGE_EXECUTE_READWRITE, &oProc );
-		RtlMoveMemory( dst, src, LENGTH );
-		VirtualProtect( dst, LENGTH, oProc, &oProc );
-	}
-
 	// mid-function Detour and Hook
-	// usage: hP.midDetour<LENGTH>(src,dst)
+	// usage: hP.midDetour<LENGTH>(lpOriginalFuncAddrs,lpFinalHookaddrs)
 	template<int LENGTH>
-	bool midDetour( char* src, char* dst )
+	bool midDetour( char* lpOriginalFuncAddrs, char* lpFinalHookaddrs )
 	{
 		if (LENGTH < 5)
 			return false;
 		DWORD oProc;
-		VirtualProtect( src, LENGTH, PAGE_EXECUTE_READWRITE, &oProc );
-		RtlFillMemory( src, LENGTH, 0x90 );
-		uintptr_t relAddy = (uintptr_t) (dst - src - 5);
-		*src = (char) 0xE9;
-		*(uintptr_t*) (src + 1) = (uintptr_t) relAddy;
-		VirtualProtect( src, LENGTH, oProc, &oProc );
+		VirtualProtect( lpOriginalFuncAddrs, LENGTH, PAGE_EXECUTE_READWRITE, &oProc );
+		RtlFillMemory( lpOriginalFuncAddrs, LENGTH, 0x90 );
+		uintptr_t relAddy = (uintptr_t) (lpFinalHookaddrs - lpOriginalFuncAddrs - 5);
+		*lpOriginalFuncAddrs = (char) 0xE9;
+		*(uintptr_t*) (lpOriginalFuncAddrs + 1) = (uintptr_t) relAddy;
+		VirtualProtect( lpOriginalFuncAddrs, LENGTH, oProc, &oProc );
 		return true;
 	}
 
 	// trampoline hook function for saving register state
-	// usage:hP.trampHook<LENGTH>(src,dst)
+	// usage:hP.trampHook<LENGTH>(lpOriginalFuncAddrs,lpFinalHookaddrs)
 	//(tEndScene)(hP.trampHook<7>((char*)d3d9Device[42], (char*)hkEndScene));
 
 	template <int LENGTH>
-	char* trampHook( char* src, char* dst )
+	char* trampHook( char* lpOriginalFuncAddrs, char* lpFinalHookaddrs )
 	{
 		if (LENGTH < 5)
 			return nullptr;
-		char* gateway = (char*) VirtualAlloc( 0, LENGTH + 5, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE );
-		RtlMoveMemory( gateway, src, LENGTH );
-		uintptr_t jumpAddress = (uintptr_t) (src - gateway - 5);
+
+		// Do not redefine gateway here otherwise variable shadowing will occur 
+		//Only assign so this way the variable gateway can be reused to patch back original bytes later
+		 gateway = (char*) VirtualAlloc( 0, LENGTH + 5, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE );
+		
+		 RtlMoveMemory( gateway, lpOriginalFuncAddrs, LENGTH );
+
+		uintptr_t jumpAddress = (uintptr_t) (lpOriginalFuncAddrs - gateway - 5);
 		*(gateway + LENGTH) = (char) 0xE9;
 		*(uintptr_t*) (gateway + LENGTH + 1) = jumpAddress;
-		if (midDetour<7>( src, dst )) // midDeotour another templated member function called here
+		if (midDetour<7>( lpOriginalFuncAddrs, lpFinalHookaddrs )) // midDeotour another templated member function called here
 		{
 			return gateway;
 		}
 		else return nullptr;
+	}
+
+	//	Use of Patch or writememory Function: To patch Back original Bytes for Unhook
+	// Create class HooknPatch hP ;
+	//use hP.patchByte<LENGTH>((char*)lpOriginalFuncAddrs)
+	//hP.patchByte<7>((BYTE*)d3d9Device[42], );
+
+	template<int LENGTH>
+	void patchByte( char* lpOriginalFuncAddrs )
+	{
+		DWORD oProc;
+		VirtualProtect( lpOriginalFuncAddrs, LENGTH, PAGE_EXECUTE_READWRITE, &oProc );
+		RtlMoveMemory( lpOriginalFuncAddrs, gateway, LENGTH );
+		VirtualProtect( lpOriginalFuncAddrs, LENGTH, oProc, &oProc );
 	}
 
 };

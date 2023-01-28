@@ -9,8 +9,25 @@
 
 using aliasEndscene = HRESULT( __stdcall* )(IDirect3DDevice9*);
 aliasEndscene  EndScenePtr { nullptr };
- // using hooking class here
+
+// using hooking class here
 HooknPatch hNP;
+
+int gameWindowWidth {};
+int gameWindowHeight {};
+
+// Get the size of Gamewindow  
+void getWindowSize( HWND gamewindow)
+{
+	RECT rect {};
+	if (GetWindowRect( gamewindow, &rect ))
+	{
+		gameWindowWidth = rect.right - rect.left;
+		gameWindowHeight = rect.bottom - rect.top;
+
+	}
+}
+
 
 //drawing filled rectangle function to be called in hookedEndscene
 void DrawFillRect( IDirect3DDevice9* pDevice, int x, int y, int w, int h, unsigned char r, unsigned char g, unsigned char b )
@@ -29,6 +46,9 @@ HRESULT __stdcall hookEndScene( IDirect3DDevice9* pDevice )
 	// 
 	//random reactangle
 	DrawFillRect( pDevice, 25, 25, 100, 100,  255, 255, 255 ) ;
+
+	// crosshair
+	  DrawFillRect( pDevice,(gameWindowWidth / 2 - 2), (gameWindowHeight / 2 - 2), 4, 4,255, 255, 255 );
 	
 	//return back to original function using EndScenePtr function pointer
 	return EndScenePtr( pDevice );
@@ -93,9 +113,11 @@ void* FindEndScene( HWND gameWindow )
 			std::cout << " Present() addrs --->\t" << std::hex << presentAddress << '\n';
 			std::cout << " EndScene() addrs --->\t" << std::hex << endSceneAddress << '\n';
 
+			//pDevice->Release(); // release the IDirect3DDevice9* interface pDevice created to prevent memory leaks
 			return endSceneAddress;
 		}
-
+		
+		//pD3D->Release(); // release the IDirect3D9* interface object pD3D created to prevent memory leaks
 	}
 	return nullptr;
 }
@@ -115,8 +137,10 @@ DWORD WINAPI MyThreadFunction( HMODULE hinstDLL )
 	}
 	else
 	{
-		// If Game-window is found we will Find the Endscene address 
-		
+		// If Game-window is found we will Find the Endscene address
+		getWindowSize( game_window);
+
+		// If Game-window is found we will Find the Endscene address
 		EndScenePtr = (aliasEndscene) FindEndScene( game_window );
 	}
 	// and Type-cast it to Endscene function pointer type-alias to EndScenePtr variable
@@ -126,6 +150,7 @@ DWORD WINAPI MyThreadFunction( HMODULE hinstDLL )
 	uintptr_t lpOriginalAddress = (uintptr_t) EndScenePtr; // src original function address saved here
 
 	//Hook endscene with our templated hook class
+	// 7 is the length of stolen bytes
 	EndScenePtr = (aliasEndscene) hNP.trampHook<7>( (char*) lpOriginalAddress, (char*) &hookEndScene );
 
 
@@ -133,7 +158,8 @@ DWORD WINAPI MyThreadFunction( HMODULE hinstDLL )
 	{
 		Sleep( 10 );
 	}
-
+	//UnHook
+	hNP.patchByte<7>( (char*)lpOriginalAddress );
 	FreeLibraryAndExitThread( hinstDLL, 0 );
 	CloseHandle( hinstDLL );
 	return 0;
